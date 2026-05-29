@@ -19,8 +19,8 @@
 ### 1-1. File Layout
 
 ```
-pico_40m_CW_RTXv5_0_J/
-├── pico_40m_CW_RTXv5_0_J.ino   Main sketch (all code, approx. 1200 lines)
+pico_40m_CW_RTXv5_0/
+├── pico_40m_CW_RTXv5_0_EN.ino   Main sketch (all code, approx. 1200 lines)
 └── DOCUMENT_V5.0_EN.md          This document
 ```
 
