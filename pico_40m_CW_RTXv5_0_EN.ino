@@ -93,8 +93,15 @@ float dcOffsetI = 0.0;
 float dcOffsetQ = 0.0;
 // tonePhase/tonePhaseIncrement moved to static float inside loop1() (eliminates 32-bit integer overflow)
 
-// ===== IIR filter parameters (40 kHz drive frequency, 700 Hz center, Q=3.5 (±100 Hz), 2-stage cascade) =====
-float iir_x1[2]={0}, iir_x2[2]={0}, iir_y1[2]={0}, iir_y2[2]={0};
+// ===== IIR filter parameters (fs=40kHz, fc=700Hz, Q≈7 (±50Hz bandwidth), 3-stage 6th-order cascade: QRM-hardened) =====
+// ★ BPF preset reference table (change both loop count and coefficients together)
+//  Stages  BW         b0        a1_code   a2_code
+//  2-stage ±100 Hz   0.024122  1.939356  0.951756  ← original (standard)
+//  2-stage ±50 Hz    0.012032  1.964050  0.975910
+//  3-stage ±50 Hz    0.015134  1.957930  0.969710  ← current (QRM rejection)
+//  3-stage ±30 Hz    0.009137  1.970800  0.981730  ← ultra-narrow (extreme QRM)
+// Note: narrower BW demands more precise VFO tuning (±50 Hz is fine with typical Si5351)
+float iir_x1[3]={0}, iir_x2[3]={0}, iir_y1[3]={0}, iir_y2[3]={0};
 
 // ===== 90-degree delay buffer for Q signal (Hilbert transform approximation) =====
 // Optimal delay for 90° at 700 Hz with 40 kHz sampling is 14 samples
@@ -110,7 +117,7 @@ int sharedIndex = 0;
 
 // --- CW Decoding Global Variables ---
 volatile float cwEnvelope = 0.0f;     // Core1→Core0: CW detection value (SNR ratio)
-#define CW_DETECT_THRESHOLD 1.5f      // SNR ratio threshold: signal detected when ratio exceeds this value
+#define CW_DETECT_THRESHOLD 2.0f      // SNR ratio threshold: signal detected when ratio exceeds this value
 #define CW_DECODED_MAX      36        // Maximum characters in the decoded text buffer
 char cwDecodedBuf[CW_DECODED_MAX + 1] = "";
 int  cwDecodedLen = 0;
@@ -254,11 +261,12 @@ float cwDemodulate(float iSignal, float qSignal, unsigned long currentFreq) {
 
   float audioSignal = iSignal - qDelayed;
 
-  // 2. IIR 2nd-order biquad bandpass filter (less than 1/10 the computation of an FIR, with extremely sharp characteristics)
+  // 2. IIR 6th-order BPF (3-stage cascade, ±50Hz) — strong QRM rejection
+  // To revert to ±100 Hz standard: change loop to 2, coefficients to 0.024122/1.939356/0.951756
   float out = audioSignal;
-  for (int i = 0; i < 2; i++) { // Use a two-layer stack (4th order) to improve sharpness
-    float y = 0.024122f * out - 0.024122f * iir_x2[i]
-              - (-1.939356f) * iir_y1[i] - (0.951756f) * iir_y2[i];
+  for (int i = 0; i < 3; i++) {
+    float y = 0.015134f * out - 0.015134f * iir_x2[i]
+              - (-1.957930f) * iir_y1[i] - (0.969710f) * iir_y2[i];
     iir_x2[i] = iir_x1[i];
     iir_x1[i] = out;
     iir_y2[i] = iir_y1[i];
@@ -270,7 +278,7 @@ float cwDemodulate(float iSignal, float qSignal, unsigned long currentFreq) {
 
 float applyAGC(float input) {
   const float targetAmplitude = 0.5;
-  const float maxGain = 20.0;   // 10.0→20.0: Expanded weak-signal amplification ceiling by +14 dB
+  const float maxGain = 30.0;   // 10.0→20.0: Expanded weak-signal amplification ceiling by +14 dB
   const float minGain = 0.1;
   const float attackRate = 0.01;
   const float decayRate = 0.001; // Fast gain reduction on strong signals to prevent clipping
